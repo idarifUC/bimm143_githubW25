@@ -1,0 +1,25 @@
+---
+title: "alphaAnalysis"
+format: html
+editor: visual
+---
+
+
+
+
+```{r}
+results_dir <- "hivpr_monomer_94b5b"
+```
+
+
+
+
+```{r}
+pdb_files <- list.files(path=results_dir,
+                        pattern="*.pdb",
+                        full.names = TRUE)
+
+# Print our PDB file names
+basename(pdb_files)
+```
+

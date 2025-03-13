@@ -1,0 +1,60 @@
+---
+title: "lab8.0"
+format: pdf
+editor: visual
+---
+
+## Quarto
+
+```{r}
+head(mtcars)
+```
+
+```{r}
+apply(mtcars, 2, sd)
+```
+
+it is clear "disp" and "hp" have the highest mean values and the highest standard deviation here. they will likely dominate any analysis i do on this dataset. lets see
+
+```{r}
+pc.noscale <- prcomp(mtcars, scale=FALSE)
+pc.scale <- prcomp(mtcars, scale=TRUE)
+```
+
+```{r}
+biplot(pc.noscale)
+```
+
+```{r}
+pc.noscale$rotation[,1]
+```
+
+plot the loadings
+
+```{r}
+library(ggplot2)
+r1 <- as.data.frame(pc.noscale$rotation)
+r1$names <- rownames(pc.noscale$rotation)
+
+
+ggplot(r1) + 
+  aes(PC1, names) + 
+  geom_col()
+```
+
+```{r}
+library(ggplot2)
+r1 <- as.data.frame(pc.scale$rotation)
+r1$names <- rownames(pc.scale$rotation)
+
+
+ggplot(r1) + 
+  aes(PC1, names) + 
+  geom_col()
+```
+
+> **Take Home**: generally we always want to set 'scale=TRUE' when we do this type of analysis to avoid our analysis being dominated by individual variables with the largest variance just due to their unit of measurement
+
+# FNA breast cancer data
+
+load the data into R.

@@ -1,0 +1,317 @@
+---
+title: "lab13.0"
+format: pdf
+editor: visual
+author: Ilyas
+Date: 2/18/25
+---
+
+## 
+
+The data for this session comes from a published RNA-seq experiment where airway smooth muscle cells were treated with dexamethasone, a synthetic glucocorticoid steroid with anti-inflammatory effects (Himes et al. 2014).
+
+## There are two datasets I need to import/read
+
+-   `countdata` the transcripts counts are per gene (rows) ing= the different experiments
+
+-   `colData` information about the colomns (i.e experiments) in `countData`.
+
+```{r}
+library(BiocManager)
+library(DESeq2)
+```
+
+```{r}
+counts <- read.csv("airway_scaledcounts.csv", row.names=1)
+
+metadata <- read.csv("airway_metadata.csv")
+
+```
+
+we can have a peak at these with `head()`
+
+```{r}
+head(counts)
+```
+
+> Q1. How many genes are in this dataset?
+
+```{r}
+nrow(counts)
+```
+
+> Q2. How many ‘control’ cell lines do we have?
+
+```{r}
+table(metadata$dex)
+```
+
+```{r}
+sum(metadata$dex == "control")
+```
+
+we can find the average (mean) count values per gene for all "control" experiments compare it to the mean values for "treated".
+
+-   Extract all "control" from the `counts` data
+
+```{r}
+control.inds <- metadata[metadata$dex == "control",]
+treated.inds <- metadata[metadata$dex == "treated",]
+```
+
+```{r}
+head(control.inds)
+dim(control.inds)
+```
+
+```{r}
+control <- metadata[metadata[,"dex"]=="control",]
+
+control.counts <- counts[ ,control$id]
+
+control.mean <- rowSums(control.counts )/4 
+
+head(control.mean)
+```
+
+```{r}
+treated <- metadata[metadata[,"dex"]=="treated",]
+
+treated.counts <- counts[ ,treated$id]
+
+treated.mean <- rowSums(treated.counts )/4 
+
+head(treated.mean)
+```
+
+```{r}
+meancounts <- data.frame(control.mean, treated.mean)
+
+plot(meancounts)
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(meancounts) + 
+  aes(control.mean, treated.mean) +
+  geom_point(alpha=.3)
+```
+
+Whenever we see data that is so heavly skewed like this we often log transform it so we can what is going on more easily
+
+```{r}
+plot(meancounts,  log="xy")
+
+```
+
+we most often work in log2 units as this makes the math easier. lets have a play to see this
+
+```{r}
+# control / treated
+log2(20/20)
+```
+
+```{r}
+log2(20/40)
+```
+
+```{r}
+log2(20/10)
+```
+
+we can now add a "log2 fold chain" values to our `meancounts` dataset
+
+```{r}
+meancounts$log2fc <- log2(meancounts$treated.mean / meancounts$control.mean)
+head(meancounts)
+```
+
+we have to filter out zero count genes - ie remove the rows (genes) that have a 0 values in either control or treated means
+
+how many genes are "up" regulated at the common log 2 data fold change threshold of 2+
+
+```{r}
+up.inds <- meancounts$log2fc >= 2
+sum(up.inds, na.rm = T)
+```
+
+```{r}
+up.inds <- counts$log2fc >= 2
+sum(up.inds, na.rm = T)
+```
+
+```{r}
+to.keep <- rowSums(meancounts[,1:2] ==0) ==0
+mycounts <- meancounts[to.keep,]
+nrow(mycounts)
+```
+
+## DESeq2 analysis
+
+to do this the right way need to consider the significance of the differences not just their magnitude
+
+```{r}
+#| message: false
+library(DESeq2)
+```
+
+to use this package it wants countData and colData in specific format
+
+```{r}
+dds <- DESeqDataSetFromMatrix(countData = counts,
+                       colData = metadata,
+                       design = ~dex)
+```
+
+```{r}
+dds <- DESeq(dds)
+```
+
+```{r}
+res <- results(dds)
+head(res)
+```
+
+```{r}
+plot(res$log2FoldChange, res$padj)
+```
+
+take log of p value
+
+```{r}
+plot(res$log2FoldChange, -log(res$padj),
+     xlab="Log2 Fold-change",
+     ylab="-log")
+```
+
+lets see
+
+```{r}
+write.csv(res, file="myresults.csv")
+```
+
+to finish off lets make a nicer volcano add the log2 threshold +2/-2
+
+add p values threshold of .05 add color to highlight the subset of the genes that meet both of the thresholds
+
+```{r}
+
+# Setup our custom point color vector 
+mycols <- rep("green", nrow(res))
+mycols[ abs(res$log2FoldChange) > 2 ]  <- "red" 
+
+inds <- (res$padj < 0.05) & (abs(res$log2FoldChange) > 2 )
+mycols[ inds ] <- "blue"
+
+# Volcano plot with custom colors 
+plot( res$log2FoldChange,  -log(res$padj), 
+ col=mycols, ylab="-Log(P-value)", xlab="Log2(FoldChange)" )
+
+# Cut-off lines
+abline(v=c(-2,2), col="black", lty=2)
+abline(h=-log(0.1), col="gray", lty=2)
+
+
+```
+
+## Add gene annotation
+
+Now the question is what are the blue points in the above volcano plot ie
+
+we will use BioConducter packages to "map" the ENSEMBLE ids to more useful gene SYMBOL names /ids
+
+```{r}
+library(AnnotationDbi)
+library(org.Hs.eg.db)
+```
+
+what data base identifiers can i trasnlate between here:
+
+```{r}
+columns(org.Hs.eg.db)
+```
+
+we can now use the `mapIDs()` function to translate/map between thesedifferent identifier format
+
+```{r}
+res$symbol <- mapIds(org.Hs.eg.db,
+                   keys=rownames(res),
+                   keytype = "ENSEMBL",
+                   column = "SYMBOL")
+
+head(res)
+
+res$genename <- mapIds(org.Hs.eg.db,
+                   keys=rownames(res),
+                   keytype = "ENSEMBL",
+                   column = "GENENAME")
+
+res$entrez <- mapIds(org.Hs.eg.db,
+                    keys=rownames(res),
+                    keytype = "ENSEMBL",
+                    column = "ENTREZID")
+
+```
+
+now i know the gene names and their ids in a different database i want to know what type of bilogoy they are involved in...
+
+this is the job of "pathway" analysis" (aka "gene set enrichment)
+
+there tones of different BioConductor packages pathway analysis here we jsut one of them called **gage**, and **pathview**. i will install these packages with `BiocManager::install(c("gage", "pathview", "gageData"))`
+
+```{r}
+library(gage)
+library(gageData)
+library(pathview)
+```
+
+load up the KEGG genesets
+
+```{r}
+data(kegg.sets.hs)
+```
+
+```{r}
+head(kegg.sets.hs, 2)
+```
+
+we will use these KEGG genesets (aka pathways) and our `res` results
+
+to see what over laps. to do this we will use the `gage()` function
+
+for input `gage()` wants just a vector of importance - in our case FodlChange values.
+
+```{r}
+foldchanges <- res$log2FoldChange
+```
+
+```{r}
+x <- c(10, 100, 20)
+names(x) <- c("barry", "alice" , "chandra") 
+x
+```
+
+lets put naems on `foldchanges` vector - here we will use `reschange`
+
+```{r}
+names(foldchanges) <- res$entrez
+head(foldchanges)
+```
+
+now we can run "pathway analysis"
+
+```{r}
+keggres = gage(foldchanges, gsets=kegg.sets.hs)
+head(keggres$less)
+```
+
+we can get a pathway image file with our genesets highlighted via `pathview()` function
+
+```{r}
+pathview(foldchanges, pathway.id = "hsa05310")
+```
+
+insert this figure in my report
+
+![](hsa05310.pathview.png)
